@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS ods_events (
-    event_id     TEXT NOT NULL,
+    event_id     TEXT NOT NULL UNIQUE,
     user_id      TEXT NOT NULL,
     email        TEXT,
     event_type   TEXT NOT NULL,
@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS ods_events (
 );
 
 CREATE TABLE IF NOT EXISTS dwd_events (
-    event_id     TEXT,
+    event_id     TEXT UNIQUE,
     user_id      TEXT NOT NULL,
     email        TEXT,
     event_type   TEXT NOT NULL,

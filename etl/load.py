@@ -23,14 +23,21 @@ def init_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def current_watermark(conn: sqlite3.Connection) -> str:
-    row = conn.execute("SELECT MAX(ts_utc) AS wm FROM ods_events").fetchone()
-    return row["wm"] if row and row["wm"] else ""
+def load_ods(conn: sqlite3.Connection, rows: list[dict]) -> int:
+    """把新事件写入 ODS，返回新增条数。
 
-
-def load_ods(conn: sqlite3.Connection, rows: list[dict], watermark: str) -> int:
-    """把水位之后的事件写入 ODS，返回新增条数。"""
-    fresh = [r for r in rows if r["ts_utc"] > watermark]
+    同一 event_id 只保留一条（幂等）；不按水位过滤，
+    迟到事件只要 event_id 未出现过就会补入。
+    """
+    existing = {r[0] for r in conn.execute("SELECT event_id FROM ods_events")}
+    fresh = []
+    seen = set()
+    for r in rows:
+        event_id = r["event_id"]
+        if event_id in existing or event_id in seen:
+            continue
+        seen.add(event_id)
+        fresh.append(r)
     for r in fresh:
         conn.execute(
             "INSERT INTO ods_events"
@@ -48,7 +55,9 @@ def rebuild_dwd(conn: sqlite3.Connection) -> None:
     conn.execute(
         "INSERT INTO dwd_events"
         " (event_id, user_id, email, event_type, amount_cents, ts_utc, dt)"
-        " SELECT event_id, user_id, email, event_type, amount_cents, ts_utc, dt FROM ods_events"
+        " SELECT event_id, user_id, email, event_type, amount_cents, ts_utc, dt"
+        " FROM ods_events"
+        " WHERE rowid IN (SELECT MIN(rowid) FROM ods_events GROUP BY event_id)"
     )
     conn.commit()
 
@@ -58,9 +67,9 @@ def rebuild_dws(conn: sqlite3.Connection) -> None:
     rows = conn.execute(
         """
         SELECT dt,
-               COUNT(DISTINCT email) AS dau,
+               COUNT(DISTINCT user_id) AS dau,
                SUM(CASE WHEN event_type = 'order_paid' THEN 1 ELSE 0 END) AS orders,
-               SUM(CASE WHEN event_type = 'order_paid' THEN amount_cents / 100.0 ELSE 0 END) AS gmv
+               SUM(CASE WHEN event_type = 'order_paid' THEN amount_cents ELSE 0 END) AS gmv_cents
         FROM dwd_events
         GROUP BY dt
         """
@@ -68,6 +77,6 @@ def rebuild_dws(conn: sqlite3.Connection) -> None:
     for row in rows:
         conn.execute(
             "INSERT INTO dws_daily (dt, dau, orders, gmv_cents) VALUES (?, ?, ?, ?)",
-            (row["dt"], row["dau"], row["orders"], int(row["gmv"])),
+            (row["dt"], row["dau"], row["orders"], row["gmv_cents"]),
         )
     conn.commit()

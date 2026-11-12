@@ -9,7 +9,6 @@ def run(target_date: str | None = None) -> dict:
     conn = load.connect()
     try:
         load.init_schema(conn)
-        watermark = load.current_watermark(conn)
 
         raw = extract.read_events()
         normalized = []
@@ -18,7 +17,7 @@ def run(target_date: str | None = None) -> dict:
             item["dt"] = transform.to_partition(item["ts_utc"])
             normalized.append(item)
 
-        added = load.load_ods(conn, normalized, watermark)
+        added = load.load_ods(conn, normalized)
         load.rebuild_dwd(conn)
         load.rebuild_dws(conn)
 
